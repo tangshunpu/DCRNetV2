@@ -38,7 +38,7 @@ VARIANTS = {
     "unified": dcrnetv2_unified,
     "large-out": dcrnetv2_large_out,
     "large-in4": dcrnetv2_large_in4,
-    # LRP = renamed v5 low-rank-prior model; suffix is decoder rank r and encoder dim d.
+    # LRP low-rank-prior variants; suffix is decoder rank r and encoder dim d.
     "lrp-r4-d128": lrp_r4_d128,
     "lrp-r4-d512": lrp_r4_d512,
     "lrp-r8-d512": lrp_r8_d512,

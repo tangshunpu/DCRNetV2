@@ -1,7 +1,6 @@
 """LRP: low-rank-prior CSI feedback model.
 
-This is the public name for the v5 low-rank matched-filter model. LRP keeps
-both encoder and decoder model-based and very small:
+LRP keeps both encoder and decoder model-based and very small:
 
 * Encoder: ``d`` learned bilinear matched filters ``u_r^T H v_r`` per CSI
   channel, followed by a lightweight linear mixer to the feedback codeword.

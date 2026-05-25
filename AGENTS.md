@@ -7,7 +7,7 @@ Guidance for AI/code agents working in this repository.
 The public DCRNetV2 release is integrated into the normal project layout:
 
 - `models/dcrnetv2.py` for DCRNetV2 models.
-- `models/lrp.py` for LRP (renamed v5) low-rank-prior models.
+- `models/lrp.py` for LRP low-rank-prior models.
 - `dataset/cost2100.py` for COST2100 reading/validation.
 - `utils.py` for training metrics/scheduler helpers.
 - `train.py` as the only public DCRNetV2 training entry.
