@@ -1,58 +1,147 @@
-## Overview
+# DCRNetV2
 
-This is the PyTorch implementation of the paper "Dilated Convolution Based CSI Feedback Compression for Massive MIMO Systems"
-(DCRNet). The work targets CSI feedback in FDD massive MIMO-OFDM systems, where downlink CSI must be estimated at the user
-equipment and fed back to the base station, creating heavy overhead as antenna counts grow. DCRNet leverages dilated
-convolutions to enlarge the receptive field without increasing kernel size, achieving accurate CSI reconstruction while
-reducing computational complexity.
+DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive MIMO-OFDM systems. This repository publishes a self-contained PyTorch release with model definitions, COST2100 dataset reading utilities, and training scripts.
 
-### Paper highlights
-- Dilated convolutions enlarge the receptive field to capture wider spatial correlation without expensive large kernels.
-- Asymmetric dilated encoder blocks (dilation rates 1/2/3) and multi-branch decoder blocks mitigate gridding effects and
-  improve reconstruction quality.
-- DCRNet-$1\times$ achieves the lowest FLOPs among lightweight models while maintaining strong NMSE performance.
-- DCRNet-$10\times$ reaches near-SOTA NMSE with substantially fewer FLOPs than high-complexity baselines.
+## Highlights
 
-### Architecture summary
-- **Input:** CSI in the angular-delay domain with shape $2 \times N_a \times N_t$ (real/imaginary channels).
-- **Encoder:** A $5 \times 5$ head convolution followed by one encoder block (asymmetric $3 \times 3$ dilated convolutions
-  with $d=1,2,3$ plus a parallel $3 \times 3$ convolution, concatenation, $1 \times 1$ fusion, and residual addition).
-- **Compression:** Reshape and fully connected layers output a codeword with compression rate $\eta \in (0,1)$.
-- **Decoder:** FC layers + reshape, a $5 \times 5$ head convolution, and two dilated decoder blocks with width expansion
-  rate $\rho$ and grouped/asymmetric convolutions to recover the CSI.
+- **Complex Hermitian low-rank encoder**: learns matched-filter measurements while preserving real/imaginary cross terms.
+- **Hybrid low-rank decoder**: combines a direct low-rank decoder with a gated factored residual bank for better high-compression reconstruction.
+- **Six ready-to-run variants**: `mini`, `small`, `base`, `unified`, `large-out`, and `large-in4` cover edge to high-accuracy settings.
+- **COST2100 ready**: includes `.mat` readers, NMSE/rho evaluation, checkpointing, JSONL logs, and shell launchers.
 
-### Experimental settings (paper)
-- COST2100 dataset, indoor (5.3 GHz) and outdoor (300 MHz) scenarios.
-- $N_t=32$ antennas, $N_c=1024$ sub-carriers, truncated to $2 \times 32 \times 32$ CSI in the angular-delay domain.
-- Train/val/test splits: 100,000 / 30,000 / 20,000 samples.
-- Training: Kaiming initialization, Adam optimizer, cosine annealing LR ($5 \times 10^{-5}$ to $2 \times 10^{-3}$), $T_w=30$, $T=2500$.
+## Repository layout
 
-### Evaluation and results summary
-- NMSE is used for reconstruction quality; FLOPs/parameters measure complexity.
-- DCRNet-$1\times$ reduces FLOPs by 26%/21%/12% versus CsiNet/CRNet/ACRNet-$1\times$ at $\eta=1/4$ and achieves the best
-  indoor NMSE among low-complexity models.
-- DCRNet-$10\times$ provides near-SOTA NMSE with ~7M fewer FLOPs than CsiNet+ and ACRNet-$10\times$ at multiple
-  compression rates.
+```text
+.
+├── dcrnetv2_release/      # Public release package
+│   ├── dcrnetv2.py        # Self-contained DCRNetV2 model definitions
+│   ├── dataset.py         # COST2100 loading + validation CLI
+│   ├── train.py           # Training loop
+│   ├── utils.py           # Scheduler, meters, NMSE/rho metrics
+│   └── __init__.py
+├── scripts/
+│   ├── read_cost2100.sh   # Dataset smoke test launcher
+│   └── train_cost2100.sh  # Training launcher
+├── train.py               # Root wrapper: python train.py ...
+├── read_dataset.py        # Root wrapper: python read_dataset.py ...
+├── requirements.txt
+└── AGENTS.md
+```
 
-## Requirements
+> Note: datasets, checkpoints, logs, and experiment outputs are intentionally not tracked.
 
-To use this project, you need to ensure the following requirements are installed.
+## Installation
 
-- Python >= 3.6
-- PyTorch == 1.7.0
-- tqdm
-- colorama
+```bash
+git clone git@github.com:tangshunpu/DCRNetV2.git
+cd DCRNetV2
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+PyTorch installation can vary by CUDA version. If needed, install the CUDA-specific wheel from the official PyTorch instructions first, then run `pip install -r requirements.txt`.
+
 ## Dataset
-The used COST2100 dataset can be found in the paper of  [CsiNet+](https://ieeexplore.ieee.org/abstract/document/8972904/) and the corresponding [GoogDrive](https://drive.google.com/drive/folders/1_lAMLk_5k1Z8zJQlTr5NRnSD6ACaNRtj).
-## Train 
-```python3
-python main.py --gpu 0 --lr 2e-3 -v 5 --cr 4 --scenario "in" --expansion 1
-```
-or ignore the output 
-```python3
-nohup python main.py --gpu 0 --lr 2e-3 -v 5 --cr 4 --scenario "in" --expansion 1  > /dev/null 2>&1 &
-```
-The training logs and checkpoints are saved in ```./outputs```
 
-## checkpoints
-The checkpoints will be available in GoogleDrive soon. 
+Download the COST2100 CSI-feedback benchmark used by CsiNet/DCRNet and place the `.mat` files under `./data/COST2100` or pass a custom path with `--data`.
+
+Expected files for each scenario (`in` indoor, `out` outdoor):
+
+```text
+data/COST2100/
+├── DATA_Htrainin.mat
+├── DATA_Hvalin.mat
+├── DATA_Htestin.mat
+├── DATA_HtestFin_all.mat
+├── DATA_Htrainout.mat
+├── DATA_Hvalout.mat
+├── DATA_Htestout.mat
+└── DATA_HtestFout_all.mat
+```
+
+Validate the files and tensor shapes:
+
+```bash
+python read_dataset.py --data ./data/COST2100 --scenario in
+# or
+DATA=./data/COST2100 SCENARIO=out bash scripts/read_cost2100.sh
+```
+
+The loader expects sparse angular-delay CSI tensors shaped `(N, 2, 32, 32)` under key `HT`, and full-bandwidth complex CSI under key `HF_all` for the rho metric.
+
+## Training
+
+Train DCRNetV2-base on COST2100 outdoor with compression ratio 4:
+
+```bash
+python train.py \
+  --variant base \
+  --scenario out \
+  --cr 4 \
+  --data ./data/COST2100 \
+  --gpu 0
+```
+
+Shell launcher equivalent:
+
+```bash
+DATA=./data/COST2100 VARIANT=base SCENARIO=out CR=4 GPU=0 bash scripts/train_cost2100.sh
+```
+
+Common options:
+
+- `--variant {mini,small,base,unified,large-out,large-in4}`
+- `--scenario {in,out}`
+- `--cr {4,8,16,32}`
+- `--epochs 1500 --batch-size 200 --lr 2e-3`
+- `--outputs ./outputs`
+- `--resume PATH` to resume optimizer/scheduler/model state
+- `--finetune-from PATH --gate-reset -1.0` for fine-tuning hybrid variants
+
+Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.jsonl`.
+
+## Model variants
+
+| Variant | Intended use |
+|---|---|
+| `mini` | smallest hybrid model for edge/mobile settings |
+| `small` | low-compute direct low-rank decoder |
+| `base` | balanced default |
+| `unified` | one safer hybrid configuration across scenarios/CRs |
+| `large-out` | outdoor-oriented hybrid configuration |
+| `large-in4` | indoor cr=4-oriented hybrid configuration |
+
+Example inference:
+
+```python
+import torch
+from dcrnetv2_release import dcrnetv2_base
+
+model = dcrnetv2_base(reduction=4)
+ckpt = torch.load("outputs/checkpoints/DCRNetV2-base-out-cr4-best.pt", map_location="cpu")
+model.load_state_dict(ckpt["state_dict"])
+model.eval()
+
+x = torch.rand(1, 2, 32, 32)  # normalized angular-delay CSI
+with torch.no_grad():
+    y = model(x)
+    z = model.encode(x)
+```
+
+## Citation
+
+If this repository helps your work, please cite this repository and the original DCRNet paper, *Dilated Convolution Based CSI Feedback Compression for Massive MIMO Systems*.
+
+```bibtex
+@misc{dcrnetv2_repo,
+  title={DCRNetV2: Lightweight CSI Feedback Compression Models},
+  author={Tang, Shunpu},
+  year={2026},
+  howpublished={\url{https://github.com/tangshunpu/DCRNetV2}}
+}
+```
+
+## License
+
+This release is provided under the MIT License. See [LICENSE](LICENSE).

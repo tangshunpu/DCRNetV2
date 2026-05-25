@@ -151,3 +151,19 @@ cifar-10-batches-py
 *.mat
 outputs/checkpoints/*
 outputs/log/*
+# Local datasets and large experiment artifacts
+COST2100
+data/
+outputs/
+runs/
+wandb/
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+*.h5
+*.hdf5
+
+# Local/private notes
+LOCAL.md
