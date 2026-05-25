@@ -6,7 +6,8 @@ Guidance for AI/code agents working in this repository.
 
 The public DCRNetV2 release is integrated into the normal project layout:
 
-- `models/dcrnetv2.py` for the model.
+- `models/dcrnetv2.py` for DCRNetV2 models.
+- `models/lrp.py` for LRP (renamed v5) low-rank-prior models.
 - `dataset/cost2100.py` for COST2100 reading/validation.
 - `utils.py` for training metrics/scheduler helpers.
 - `train.py` as the only public DCRNetV2 training entry.
@@ -25,15 +26,18 @@ Do not recreate a separate `dcrnetv2_release/` package unless explicitly request
 Before committing release changes, run:
 
 ```bash
-python -m py_compile train.py read_dataset.py utils.py models/dcrnetv2.py dataset/cost2100.py
+python -m py_compile train.py read_dataset.py utils.py models/dcrnetv2.py models/lrp.py dataset/cost2100.py
 python - <<'PY'
 import torch
 from models.dcrnetv2 import dcrnetv2_mini
+from models.lrp import lrp_r4_d128
 m = dcrnetv2_mini(reduction=4).eval()
+lrp = lrp_r4_d128(reduction=4).eval()
 x = torch.rand(1, 2, 32, 32)
 with torch.no_grad():
     y = m(x)
-print(tuple(y.shape))
+    y_lrp = lrp(x)
+print(tuple(y.shape), tuple(y_lrp.shape))
 PY
 ```
 

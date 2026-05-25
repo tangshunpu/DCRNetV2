@@ -6,7 +6,7 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 
 - **Complex Hermitian low-rank encoder**: learns matched-filter measurements while preserving real/imaginary cross terms.
 - **Hybrid low-rank decoder**: combines a direct low-rank decoder with a gated factored residual bank for better high-compression reconstruction.
-- **Six ready-to-run variants**: `mini`, `small`, `base`, `unified`, `large-out`, and `large-in4` cover edge to high-accuracy settings.
+- **Ready-to-run variants**: DCRNetV2 (`mini`, `small`, `base`, `unified`, `large-out`, `large-in4`) and LRP (`lrp-r4-d128`, `lrp-r4-d512`, `lrp-r8-d512`, `lrp-r16-d512`).
 - **COST2100 ready**: includes `.mat` readers, NMSE/rho evaluation, checkpointing, JSONL logs, and shell launchers.
 
 ## Repository layout
@@ -14,7 +14,8 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 ```text
 .
 ├── models/
-│   └── dcrnetv2.py       # DCRNetV2 model definitions and variant factories
+│   ├── dcrnetv2.py       # DCRNetV2 model definitions and variant factories
+│   └── lrp.py            # LRP (renamed v5) low-rank-prior variants
 ├── dataset/
 │   └── cost2100.py       # COST2100 loading + validation CLI
 ├── utils.py              # Scheduler, meters, NMSE/rho metrics
@@ -88,9 +89,15 @@ Shell launcher equivalent:
 DATA=./data/COST2100 VARIANT=base SCENARIO=out CR=4 GPU=0 bash scripts/train_cost2100.sh
 ```
 
+Train an LRP/v5 configuration from the complexity-control table:
+
+```bash
+python train.py --variant lrp-r16-d512 --scenario out --cr 4 --data ./data/COST2100 --gpu 0
+```
+
 Common options:
 
-- `--variant {mini,small,base,unified,large-out,large-in4}`
+- `--variant {mini,small,base,unified,large-out,large-in4,lrp-r4-d128,lrp-r4-d512,lrp-r8-d512,lrp-r16-d512}`
 - `--scenario {in,out}`
 - `--cr {4,8,16,32}`
 - `--epochs 1500 --batch-size 200 --lr 2e-3`
@@ -104,12 +111,27 @@ Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.js
 
 | Variant | Intended use |
 |---|---|
-| `mini` | smallest hybrid model for edge/mobile settings |
-| `small` | low-compute direct low-rank decoder |
-| `base` | balanced default |
-| `unified` | one safer hybrid configuration across scenarios/CRs |
-| `large-out` | outdoor-oriented hybrid configuration |
-| `large-in4` | indoor cr=4-oriented hybrid configuration |
+| `mini` | smallest hybrid DCRNetV2 model for edge/mobile settings |
+| `small` | low-compute DCRNetV2 direct low-rank decoder |
+| `base` | balanced DCRNetV2 default |
+| `unified` | one safer DCRNetV2 hybrid configuration across scenarios/CRs |
+| `large-out` | outdoor-oriented DCRNetV2 hybrid configuration |
+| `large-in4` | indoor cr=4-oriented DCRNetV2 hybrid configuration |
+| `lrp-r4-d128` | LRP/v5 with decoder rank `r=4`, encoder matched filters `d=128` |
+| `lrp-r4-d512` | LRP/v5 with `r=4`, `d=512` |
+| `lrp-r8-d512` | LRP/v5 with `r=8`, `d=512` |
+| `lrp-r16-d512` | LRP/v5 with `r=16`, `d=512` |
+
+### LRP complexity-control results
+
+LRP is the renamed v5 low-rank-prior model. The table below reports the configurations used for model-based CSI feedback comparisons. FLOPs and NMSE are copied from the experiment table; NMSE is in dB.
+
+| LRP config | eta=1/4 FLOPs | Indoor | Outdoor | eta=1/8 FLOPs | Indoor | Outdoor | eta=1/16 FLOPs | Indoor | Outdoor | eta=1/32 FLOPs | Indoor | Outdoor |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `lrp-r4-d128` | **0.68M** | -13.18 | -4.83 | **0.48M** | -12.19 | -4.32 | **0.39M** | -11.41 | -3.66 | **0.34M** | -8.58 | -2.40 |
+| `lrp-r4-d512` | 1.88M | -14.11 | -5.96 | 1.49M | -14.15 | -5.30 | 1.29M | -11.82 | -4.00 | 1.20M | -8.61 | -2.64 |
+| `lrp-r8-d512` | 2.16M | -17.94 | -8.33 | 1.64M | -15.81 | -6.14 | 1.38M | -12.47 | -4.19 | 1.25M | -8.62 | -2.70 |
+| `lrp-r16-d512` | 2.72M | -21.62 | -9.04 | 1.93M | -15.87 | -6.30 | 1.54M | -12.55 | -4.19 | 1.34M | -8.67 | -2.72 |
 
 Example inference:
 
@@ -126,6 +148,13 @@ x = torch.rand(1, 2, 32, 32)  # normalized angular-delay CSI
 with torch.no_grad():
     y = model(x)
     z = model.encode(x)
+```
+
+LRP can be loaded in the same way:
+
+```python
+from models.lrp import lrp_r16_d512
+model = lrp_r16_d512(reduction=4)
 ```
 
 ## Citation

@@ -1,7 +1,8 @@
-"""Train DCRNetV2 on COST2100.
+"""Train DCRNetV2 or LRP on COST2100.
 
 Examples:
     python train.py --variant base --scenario out --cr 4 --data ./data/COST2100
+    python train.py --variant lrp-r16-d512 --scenario out --cr 4 --data ./data/COST2100
     python train.py --variant mini --scenario in --cr 16 --epochs 1 --workers 0
 """
 
@@ -19,7 +20,6 @@ import torch.nn as nn
 
 from dataset.cost2100 import Cost2100DataLoader
 from models.dcrnetv2 import (
-    DCRNetV2,
     dcrnetv2_base,
     dcrnetv2_large_in4,
     dcrnetv2_large_out,
@@ -27,6 +27,7 @@ from models.dcrnetv2 import (
     dcrnetv2_small,
     dcrnetv2_unified,
 )
+from models.lrp import lrp_r4_d128, lrp_r4_d512, lrp_r8_d512, lrp_r16_d512
 from utils import AverageMeter, WarmUpCosineAnnealingLR, evaluator
 
 
@@ -37,16 +38,21 @@ VARIANTS = {
     "unified": dcrnetv2_unified,
     "large-out": dcrnetv2_large_out,
     "large-in4": dcrnetv2_large_in4,
+    # LRP = renamed v5 low-rank-prior model; suffix is decoder rank r and encoder dim d.
+    "lrp-r4-d128": lrp_r4_d128,
+    "lrp-r4-d512": lrp_r4_d512,
+    "lrp-r8-d512": lrp_r8_d512,
+    "lrp-r16-d512": lrp_r16_d512,
 }
 
 
-def build_model(variant: str, reduction: int) -> DCRNetV2:
+def build_model(variant: str, reduction: int) -> torch.nn.Module:
     if variant not in VARIANTS:
         raise ValueError(f"Unknown variant {variant!r}; choose from {sorted(VARIANTS)}")
     return VARIANTS[variant](reduction=reduction)
 
 
-def reset_gate_bias(model: DCRNetV2, value: float) -> None:
+def reset_gate_bias(model: torch.nn.Module, value: float) -> None:
     """Reset hybrid decoder gate bias for fine-tuning recipes."""
 
     if not hasattr(model.decoder, "extra"):
@@ -110,8 +116,8 @@ def save_checkpoint(path: Path, model, optimizer, scheduler, epoch: int, metrics
 
 
 def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description="Train DCRNetV2 on COST2100")
-    parser.add_argument("--variant", required=True, choices=sorted(VARIANTS), help="DCRNetV2 variant")
+    parser = argparse.ArgumentParser(description="Train DCRNetV2/LRP on COST2100")
+    parser.add_argument("--variant", required=True, choices=sorted(VARIANTS), help="Model variant; LRP variants use lrp-r{r}-d{d}")
     parser.add_argument("--scenario", required=True, choices=["in", "out"], help="COST2100 indoor/outdoor scenario")
     parser.add_argument("--cr", type=int, required=True, choices=[4, 8, 16, 32], help="Compression ratio")
     parser.add_argument("--data", default="./data/COST2100", help="COST2100 dataset root")
@@ -190,7 +196,8 @@ def main(argv=None) -> None:
             print(f"Reset rank_gate.bias to {args.gate_reset}")
 
     n_params = sum(p.numel() for p in model.parameters())
-    run_name = f"DCRNetV2-{args.variant}-{args.scenario}-cr{args.cr}"
+    model_label = args.variant.replace("lrp", "LRP", 1) if args.variant.startswith("lrp-") else f"DCRNetV2-{args.variant}"
+    run_name = f"{model_label}-{args.scenario}-cr{args.cr}"
     ckpt_best = ckpt_dir / f"{run_name}-best.pt"
     ckpt_last = ckpt_dir / f"{run_name}-last.pt"
     log_path = log_dir / f"{run_name}.jsonl"
