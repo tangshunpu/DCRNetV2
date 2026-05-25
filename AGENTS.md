@@ -4,7 +4,15 @@ Guidance for AI/code agents working in this repository.
 
 ## Scope
 
-The public release lives in `dcrnetv2_release/` plus the root wrappers `train.py` and `read_dataset.py`. Prefer editing these files for release-facing changes.
+The public DCRNetV2 release is integrated into the normal project layout:
+
+- `models/dcrnetv2.py` for the model.
+- `dataset/cost2100.py` for COST2100 reading/validation.
+- `utils.py` for training metrics/scheduler helpers.
+- `train.py` as the only public DCRNetV2 training entry.
+- `read_dataset.py` for dataset smoke tests.
+
+Do not recreate a separate `dcrnetv2_release/` package unless explicitly requested.
 
 ## Do not commit
 
@@ -17,10 +25,10 @@ The public release lives in `dcrnetv2_release/` plus the root wrappers `train.py
 Before committing release changes, run:
 
 ```bash
-python -m py_compile train.py read_dataset.py dcrnetv2_release/*.py
+python -m py_compile train.py read_dataset.py utils.py models/dcrnetv2.py dataset/cost2100.py
 python - <<'PY'
 import torch
-from dcrnetv2_release import dcrnetv2_mini
+from models.dcrnetv2 import dcrnetv2_mini
 m = dcrnetv2_mini(reduction=4).eval()
 x = torch.rand(1, 2, 32, 32)
 with torch.no_grad():
@@ -34,5 +42,5 @@ If a small synthetic COST2100 fixture is available, also smoke-test one epoch wi
 ## Style
 
 - Keep the release scripts self-contained and easy to run from a fresh clone.
-- Use relative imports inside `dcrnetv2_release` so both `python train.py` and `python -m dcrnetv2_release.train` work.
+- Avoid duplicate model/training packages; put release code in the existing `models/`, `dataset/`, and root script locations.
 - Document new CLI flags in `README.md`.

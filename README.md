@@ -13,17 +13,16 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 
 ```text
 .
-├── dcrnetv2_release/      # Public release package
-│   ├── dcrnetv2.py        # Self-contained DCRNetV2 model definitions
-│   ├── dataset.py         # COST2100 loading + validation CLI
-│   ├── train.py           # Training loop
-│   ├── utils.py           # Scheduler, meters, NMSE/rho metrics
-│   └── __init__.py
+├── models/
+│   └── dcrnetv2.py       # DCRNetV2 model definitions and variant factories
+├── dataset/
+│   └── cost2100.py       # COST2100 loading + validation CLI
+├── utils.py              # Scheduler, meters, NMSE/rho metrics
+├── train.py              # Single DCRNetV2 training entry
+├── read_dataset.py       # Dataset validation/inspection entry
 ├── scripts/
-│   ├── read_cost2100.sh   # Dataset smoke test launcher
-│   └── train_cost2100.sh  # Training launcher
-├── train.py               # Root wrapper: python train.py ...
-├── read_dataset.py        # Root wrapper: python read_dataset.py ...
+│   ├── read_cost2100.sh  # Dataset smoke test launcher
+│   └── train_cost2100.sh # Training launcher
 ├── requirements.txt
 └── AGENTS.md
 ```
@@ -99,7 +98,7 @@ Common options:
 - `--resume PATH` to resume optimizer/scheduler/model state
 - `--finetune-from PATH --gate-reset -1.0` for fine-tuning hybrid variants
 
-Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.jsonl`.
+Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.jsonl`. `main.py` is kept only for legacy/experimental DCRNet-V1 workflows; use `train.py` for the public DCRNetV2 release.
 
 ## Model variants
 
@@ -116,7 +115,7 @@ Example inference:
 
 ```python
 import torch
-from dcrnetv2_release import dcrnetv2_base
+from models.dcrnetv2 import dcrnetv2_base
 
 model = dcrnetv2_base(reduction=4)
 ckpt = torch.load("outputs/checkpoints/DCRNetV2-base-out-cr4-best.pt", map_location="cpu")
