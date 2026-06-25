@@ -19,7 +19,9 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 ├── dataset/
 │   └── cost2100.py       # COST2100 loading + validation CLI
 ├── utils.py              # Scheduler, meters, NMSE/rho metrics
-├── train.py              # Single DCRNetV2 training entry
+├── weights/              # Curated DCRNetV2/LRP checkpoints
+├── archive/              # Legacy code kept out of the public path
+├── train.py              # Single DCRNetV2/LRP training entry
 ├── read_dataset.py       # Dataset validation/inspection entry
 ├── scripts/
 │   ├── read_cost2100.sh  # Dataset smoke test launcher
@@ -105,7 +107,7 @@ Common options:
 - `--resume PATH` to resume optimizer/scheduler/model state
 - `--finetune-from PATH --gate-reset -1.0` for fine-tuning hybrid variants
 
-Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.jsonl`. `main.py` is kept only for legacy/experimental DCRNet-V1 workflows; use `train.py` for the public DCRNetV2 release.
+Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.jsonl`. Use `train.py` for the public DCRNetV2/LRP release; legacy DCRNet code is kept under `archive/`.
 
 ## Model variants
 
@@ -133,14 +135,14 @@ LRP is a low-rank-prior model. The table below reports the configurations used f
 | `lrp-r8-d512` | 2.16M | -17.94 | -8.33 | 1.64M | -15.81 | -6.14 | 1.38M | -12.47 | -4.19 | 1.25M | -8.62 | -2.70 |
 | `lrp-r16-d512` | 2.72M | -21.62 | -9.04 | 1.93M | -15.87 | -6.30 | 1.54M | -12.55 | -4.19 | 1.34M | -8.67 | -2.72 |
 
-Example inference:
+Example inference with a curated DCRNetV2 checkpoint:
 
 ```python
 import torch
-from models.dcrnetv2 import dcrnetv2_base
+from models.dcrnetv2 import dcrnetv2_large_out
 
-model = dcrnetv2_base(reduction=4)
-ckpt = torch.load("outputs/checkpoints/DCRNetV2-base-out-cr4-best.pt", map_location="cpu")
+ckpt = torch.load("weights/dcrnetv2-large-out/out/cr4.pt", map_location="cpu")
+model = dcrnetv2_large_out(reduction=ckpt["cr"])
 model.load_state_dict(ckpt["state_dict"])
 model.eval()
 
@@ -153,9 +155,42 @@ with torch.no_grad():
 LRP can be loaded in the same way:
 
 ```python
+import torch
 from models.lrp import lrp_r16_d512
-model = lrp_r16_d512(reduction=4)
+
+ckpt = torch.load("weights/lrp-r16-d512/in/cr8.pt", map_location="cpu")
+model = lrp_r16_d512(reduction=ckpt["cr"])
+model.load_state_dict(ckpt["state_dict"])
+model.eval()
 ```
+
+## Pretrained weights
+
+Curated checkpoints are stored under `weights/`:
+
+```text
+weights/
+├── dcrnetv2-large-in4/in/cr{4,8,16,32}.pt
+├── dcrnetv2-large-out/out/cr{4,8,16,32}.pt
+├── lrp-r4-d128/{in,out}/cr{4,8,16,32}.pt
+├── lrp-r4-d512/{in,out}/cr{4,8,16,32}.pt
+├── lrp-r8-d512/{in,out}/cr{4,8,16,32}.pt
+└── lrp-r16-d512/{in,out}/cr{4,8,16,32}.pt
+```
+
+Load a checkpoint with:
+
+```python
+import torch
+from models.dcrnetv2 import dcrnetv2_large_out
+
+model = dcrnetv2_large_out(reduction=4)
+ckpt = torch.load("weights/dcrnetv2-large-out/out/cr4.pt", map_location="cpu")
+model.load_state_dict(ckpt["state_dict"])
+model.eval()
+```
+
+LRP weights use the same format, e.g. `weights/lrp-r16-d512/in/cr8.pt`.
 
 ## Citation
 

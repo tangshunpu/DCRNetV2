@@ -167,3 +167,8 @@ wandb/
 
 # Local/private notes
 LOCAL.md
+
+# Curated public checkpoints
+!weights/
+!weights/**/
+!weights/**/*.pt

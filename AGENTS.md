@@ -10,7 +10,7 @@ The public DCRNetV2 release is integrated into the normal project layout:
 - `models/lrp.py` for LRP low-rank-prior models.
 - `dataset/cost2100.py` for COST2100 reading/validation.
 - `utils.py` for training metrics/scheduler helpers.
-- `train.py` as the only public DCRNetV2 training entry.
+- `train.py` as the only public DCRNetV2/LRP training entry.
 - `read_dataset.py` for dataset smoke tests.
 
 Do not recreate a separate `dcrnetv2_release/` package unless explicitly requested.
@@ -20,6 +20,8 @@ Do not recreate a separate `dcrnetv2_release/` package unless explicitly request
 - COST2100 or any other datasets (`data/`, `COST2100`, `*.mat`).
 - Training outputs/checkpoints/logs (`outputs/`, `runs/`, `wandb/`, `*.pt`, `*.pth`, `*.ckpt`).
 - Local virtual environments, caches, or machine-specific paths.
+
+Curated public checkpoints may be committed under `weights/`; do not commit ad-hoc `outputs/` runs.
 
 ## Validation checklist
 
@@ -46,5 +48,5 @@ If a small synthetic COST2100 fixture is available, also smoke-test one epoch wi
 ## Style
 
 - Keep the release scripts self-contained and easy to run from a fresh clone.
-- Avoid duplicate model/training packages; put release code in the existing `models/`, `dataset/`, and root script locations.
+- Avoid duplicate model/training packages; put release code in the existing `models/`, `dataset/`, and root script locations. Put legacy or confusing experiments under `archive/`.
 - Document new CLI flags in `README.md`.
