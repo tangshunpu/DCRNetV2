@@ -170,6 +170,10 @@ Curated checkpoints are stored under `weights/`:
 
 ```text
 weights/
+├── dcrnetv2-mini/{in,out}/cr{4,8,16,32}.pt
+├── dcrnetv2-small/{in,out}/cr{4,8,16,32}.pt
+├── dcrnetv2-base/{in,out}/cr{4,8,16,32}.pt
+├── dcrnetv2-unified/{in,out}/cr{4,8,16,32}.pt
 ├── dcrnetv2-large-in4/in/cr{4,8,16,32}.pt
 ├── dcrnetv2-large-out/out/cr{4,8,16,32}.pt
 ├── lrp-r4-d128/{in,out}/cr{4,8,16,32}.pt
@@ -190,7 +194,7 @@ model.load_state_dict(ckpt["state_dict"])
 model.eval()
 ```
 
-LRP weights use the same format, e.g. `weights/lrp-r16-d512/in/cr8.pt`.
+LRP weights use the same format, e.g. `weights/lrp-r16-d512/in/cr8.pt`. Historical checkpoint-name mappings are documented in `weights/SOURCES.md`.
 
 ## Citation
 

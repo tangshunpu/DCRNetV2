@@ -6,6 +6,10 @@ Curated checkpoints for the public DCRNetV2/LRP release.
 
 ```text
 weights/
+├── dcrnetv2-mini/{in,out}/cr{4,8,16,32}.pt
+├── dcrnetv2-small/{in,out}/cr{4,8,16,32}.pt
+├── dcrnetv2-base/{in,out}/cr{4,8,16,32}.pt
+├── dcrnetv2-unified/{in,out}/cr{4,8,16,32}.pt
 ├── dcrnetv2-large-in4/in/cr{4,8,16,32}.pt
 ├── dcrnetv2-large-out/out/cr{4,8,16,32}.pt
 ├── lrp-r4-d128/{in,out}/cr{4,8,16,32}.pt
@@ -47,3 +51,5 @@ model = lrp_r16_d512(reduction=ckpt["cr"])
 model.load_state_dict(ckpt["state_dict"])
 model.eval()
 ```
+
+See `SOURCES.md` for the historical checkpoint names used to build each curated file.
