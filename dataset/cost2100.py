@@ -34,6 +34,7 @@ __all__ = [
     "Cost2100DataLoader",
     "PreFetcher",
     "load_cost2100_tensors",
+    "load_cost2100_test_tensors",
     "summarize_cost2100",
 ]
 
@@ -109,14 +110,11 @@ def _as_raw_tensor(array: np.ndarray, *, name: str) -> torch.Tensor:
     """Convert complex HF_all to (N, 32, 125, 2)."""
 
     array = np.asarray(array)
-    if array.ndim < 3:
-        raise ValueError(f"{name} must have at least 3 dims, got {array.shape}")
-
     n = array.shape[0]
     raw = np.asarray(array)
-    if raw.shape[1:3] == (32, 125):
+    if raw.ndim >= 3 and raw.shape[1:3] == (32, 125):
         raw = raw[:, :32, :125]
-    elif raw.shape[1:3] == (125, 32):
+    elif raw.ndim >= 3 and raw.shape[1:3] == (125, 32):
         raw = raw[:, :125, :32].transpose(0, 2, 1)
     else:
         # COST2100 releases may store HF_all as a flattened tail. Keep the
@@ -152,6 +150,18 @@ def load_cost2100_tensors(root: str | os.PathLike, scenario: str) -> Tuple[torch
         _load_mat_key(root / f"DATA_Hval{scenario}.mat", ("HT", "H_val", "val")),
         name="val HT",
     )
+    test, raw_test = load_cost2100_test_tensors(root, scenario)
+    return train, val, test, raw_test
+
+
+def load_cost2100_test_tensors(root: str | os.PathLike, scenario: str) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Load only the sparse and full-bandwidth test tensors for quick evaluation."""
+
+    root = Path(root).expanduser()
+    if scenario not in {"in", "out"}:
+        raise ValueError("scenario must be 'in' or 'out'")
+    if not root.is_dir():
+        raise FileNotFoundError(f"Dataset root not found: {root}")
     test = _as_sparse_tensor(
         _load_mat_key(root / f"DATA_Htest{scenario}.mat", ("HT", "H_test", "test")),
         name="test HT",
@@ -162,7 +172,7 @@ def load_cost2100_tensors(root: str | os.PathLike, scenario: str) -> Tuple[torch
     )
     if raw_test.shape[0] != test.shape[0]:
         raise ValueError(f"test/raw sample count mismatch: {test.shape[0]} vs {raw_test.shape[0]}")
-    return train, val, test, raw_test
+    return test, raw_test
 
 
 class Cost2100DataLoader:

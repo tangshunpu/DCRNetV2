@@ -146,6 +146,7 @@ cython_debug/
 cifar-10-batches-py
 *.tar.gz
 *.png
+!figures/*.png
 *.zip
 *.gz
 *.mat

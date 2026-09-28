@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -28,7 +29,7 @@ from models.dcrnetv2 import (
     dcrnetv2_unified,
 )
 from models.lrp import lrp_r4_d128, lrp_r4_d512, lrp_r8_d512, lrp_r16_d512
-from utils import AverageMeter, WarmUpCosineAnnealingLR, evaluator
+from utils import AverageMeter, WarmUpCosineAnnealingLR, evaluator, nmse_db, nmse_ratio
 
 
 VARIANTS = {
@@ -85,19 +86,32 @@ def train_one_epoch(loader, model, criterion, optimizer, scheduler, device):
 
 
 @torch.no_grad()
-def evaluate(loader, model, device):
-    nmse_meter = AverageMeter("nmse")
+def evaluate(loader, model, device, metric="paper"):
+    """Compute paper-style batch NMSE or global NMSE; rho needs raw CSI."""
+
+    if metric not in {"paper", "global"}:
+        raise ValueError(f"Unknown NMSE metric: {metric}")
+    nmse_meter = AverageMeter("nmse_db")
+    ratio_sum = 0.0
     rho_meter = AverageMeter("rho")
     model.eval()
     for batch in loader:
         sparse_gt = batch[0].to(device, non_blocking=True)
-        raw_gt = batch[1].to(device, non_blocking=True)
         sparse_pred = model(sparse_gt)
-        rho, nmse = evaluator(sparse_pred, sparse_gt, raw_gt)
         bs = sparse_gt.size(0)
-        nmse_meter.update(nmse, n=bs)
-        rho_meter.update(rho, n=bs)
-    return nmse_meter.avg, rho_meter.avg
+        if len(batch) > 1:
+            raw_gt = batch[1].to(device, non_blocking=True)
+            rho, batch_nmse = evaluator(sparse_pred, sparse_gt, raw_gt)
+            rho_meter.update(rho, n=bs)
+        else:
+            batch_nmse = nmse_db(sparse_pred, sparse_gt)
+        nmse_meter.update(batch_nmse, n=bs)
+        if metric == "global":
+            ratio_sum += nmse_ratio(sparse_pred, sparse_gt).sum().item()
+    if not nmse_meter.count:
+        raise ValueError("Cannot evaluate an empty dataset")
+    nmse = nmse_meter.avg if metric == "paper" else 10 * math.log10(ratio_sum / nmse_meter.count)
+    return nmse, (rho_meter.avg if rho_meter.count else None)
 
 
 def save_checkpoint(path: Path, model, optimizer, scheduler, epoch: int, metrics: dict, args) -> None:
@@ -158,7 +172,7 @@ def main(argv=None) -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
 
-    train_loader, _, test_loader = Cost2100DataLoader(
+    train_loader, val_loader, test_loader = Cost2100DataLoader(
         args.data,
         batch_size=args.batch_size,
         num_workers=args.workers,
@@ -174,7 +188,7 @@ def main(argv=None) -> None:
     )
 
     start_epoch = 0
-    best_nmse = float("inf")
+    best_val_nmse = float("inf")
     best_epoch = -1
 
     load_path = args.resume or args.finetune_from
@@ -189,8 +203,9 @@ def main(argv=None) -> None:
             if "scheduler" in checkpoint:
                 scheduler.load_state_dict(checkpoint["scheduler"])
             start_epoch = int(checkpoint.get("epoch", -1)) + 1
-            best_nmse = float(checkpoint.get("best_nmse", checkpoint.get("nmse", best_nmse)))
-            best_epoch = int(checkpoint.get("best_epoch", checkpoint.get("epoch", best_epoch)))
+            if checkpoint.get("selection_split") == "val":
+                best_val_nmse = float(checkpoint.get("best_val_nmse", best_val_nmse))
+                best_epoch = int(checkpoint.get("best_epoch", best_epoch))
         if args.gate_reset is not None:
             reset_gate_bias(model, args.gate_reset)
             print(f"Reset rank_gate.bias to {args.gate_reset}")
@@ -203,7 +218,7 @@ def main(argv=None) -> None:
     log_path = log_dir / f"{run_name}.jsonl"
 
     print(f"Model: {run_name}  params={n_params/1e3:.1f}K  device={device}")
-    print(f"Data: {args.data}  train_batches={len(train_loader)}  test_batches={len(test_loader)}")
+    print(f"Data: {args.data}  train_batches={len(train_loader)}  val_batches={len(val_loader)}  test_batches={len(test_loader)}")
     print(f"Logs: {log_path}")
 
     for epoch in range(start_epoch, args.epochs):
@@ -217,17 +232,17 @@ def main(argv=None) -> None:
             "elapsed_sec": time.time() - t0,
         }
         if should_eval:
-            nmse, rho = evaluate(test_loader, model, device)
-            improved = nmse < best_nmse
+            val_nmse, _ = evaluate(val_loader, model, device)
+            improved = val_nmse < best_val_nmse
             if improved:
-                best_nmse = nmse
+                best_val_nmse = val_nmse
                 best_epoch = epoch
-            row.update({"nmse": nmse, "rho": rho, "best_nmse": best_nmse, "best_epoch": best_epoch + 1})
+            row.update({"val_nmse": val_nmse, "best_val_nmse": best_val_nmse, "best_epoch": best_epoch + 1})
             tag = " NEW BEST" if improved else ""
             print(
                 f"Epoch {epoch+1}/{args.epochs}  loss={train_loss:.3e}  "
-                f"NMSE={nmse:.4f} dB  rho={rho:.4f}  "
-                f"best={best_nmse:.4f} @ep{best_epoch+1}{tag}  ({row['elapsed_sec']:.1f}s)"
+                f"val_NMSE={val_nmse:.4f} dB  "
+                f"best={best_val_nmse:.4f} @ep{best_epoch+1}{tag}  ({row['elapsed_sec']:.1f}s)"
             )
             if improved:
                 save_checkpoint(
@@ -236,7 +251,7 @@ def main(argv=None) -> None:
                     optimizer,
                     scheduler,
                     epoch,
-                    {"nmse": nmse, "rho": rho, "best_nmse": best_nmse, "best_epoch": best_epoch},
+                    {"val_nmse": val_nmse, "best_val_nmse": best_val_nmse, "best_epoch": best_epoch, "selection_split": "val"},
                     args,
                 )
         else:
@@ -251,11 +266,19 @@ def main(argv=None) -> None:
             optimizer,
             scheduler,
             epoch,
-            {"best_nmse": best_nmse, "best_epoch": best_epoch},
+            {"best_val_nmse": best_val_nmse, "best_epoch": best_epoch, "selection_split": "val"},
             args,
         )
 
-    print(f"\n=> Final best NMSE: {best_nmse:.4f} dB @ epoch {best_epoch+1}")
+    if best_epoch < 0:
+        raise RuntimeError("No validation checkpoint was produced; check --epochs and --val-freq")
+    best_state = torch.load(ckpt_best, map_location=device)
+    model.load_state_dict(best_state["state_dict"])
+    test_nmse, test_rho = evaluate(test_loader, model, device)
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"phase": "test", "checkpoint": str(ckpt_best), "nmse": test_nmse, "rho": test_rho}) + "\n")
+    print(f"\n=> Best validation NMSE: {best_val_nmse:.4f} dB @ epoch {best_epoch+1}")
+    print(f"=> Held-out test: NMSE={test_nmse:.4f} dB  rho={test_rho:.4f}")
     print(f"=> Best checkpoint: {ckpt_best}")
 
 

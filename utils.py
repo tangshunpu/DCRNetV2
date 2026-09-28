@@ -49,15 +49,22 @@ class AverageMeter:
 
 
 @torch.no_grad()
-def nmse_db(sparse_pred: torch.Tensor, sparse_gt: torch.Tensor) -> float:
-    """NMSE in dB on angular-delay CSI tensors shaped ``(B, 2, 32, 32)``."""
+def nmse_ratio(sparse_pred: torch.Tensor, sparse_gt: torch.Tensor) -> torch.Tensor:
+    """Return one linear NMSE ratio per angular-delay CSI sample."""
 
     sparse_gt = sparse_gt - 0.5
     sparse_pred = sparse_pred - 0.5
     power_gt = sparse_gt[:, 0] ** 2 + sparse_gt[:, 1] ** 2
     diff = sparse_gt - sparse_pred
     mse = diff[:, 0] ** 2 + diff[:, 1] ** 2
-    nmse = 10 * torch.log10((mse.sum(dim=[1, 2]) / power_gt.sum(dim=[1, 2]).clamp_min(1e-12)).mean())
+    return mse.sum(dim=[1, 2]) / power_gt.sum(dim=[1, 2]).clamp_min(1e-12)
+
+
+@torch.no_grad()
+def nmse_db(sparse_pred: torch.Tensor, sparse_gt: torch.Tensor) -> float:
+    """NMSE in dB on angular-delay CSI tensors shaped ``(B, 2, 32, 32)``."""
+
+    nmse = 10 * torch.log10(nmse_ratio(sparse_pred, sparse_gt).mean())
     return nmse.item()
 
 

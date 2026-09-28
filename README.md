@@ -9,6 +9,59 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 - **Ready-to-run variants**: DCRNetV2 (`mini`, `small`, `base`, `unified`, `large-out`, `large-in4`) and LRP (`lrp-r4-d128`, `lrp-r4-d512`, `lrp-r8-d512`, `lrp-r16-d512`).
 - **COST2100 ready**: includes `.mat` readers, NMSE/rho evaluation, checkpointing, JSONL logs, and shell launchers.
 
+## Figures
+
+**DCRNetV2 architecture.** The overall CSI feedback path and its DCR encoder, fusion, factored residual decoder, and refinement blocks.
+
+![DCRNetV2 architecture: overall flow and component diagrams](figures/DCRNetV2_archi.png)
+
+**FLOPs versus NMSE.** The supplied comparison for compression ratios η=1/4 and η=1/16. Lower NMSE and fewer FLOPs are better.
+
+![FLOPs versus NMSE comparison at compression ratios one quarter and one sixteenth](figures/flops_vs_nmse.png)
+
+## Quick reproduction
+
+1. Create an environment and install the dependencies:
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python -m pip install -r requirements.txt
+   ```
+
+2. Put the COST2100 `.mat` files in `./data/COST2100` as shown [below](#dataset), then check their shapes:
+
+   ```bash
+   python read_dataset.py --data ./data/COST2100 --scenario in
+   ```
+
+3. Evaluate a curated checkpoint without training. This reads the two **test** files for the selected scenario; it prints NMSE in dB and rho:
+
+   ```bash
+   python evaluate.py --variant mini --scenario in --cr 4 --data ./data/COST2100
+   ```
+
+   The matching checkpoint is selected from `weights/dcrnetv2-mini/in/cr4.pt`. To evaluate a local checkpoint, add `--checkpoint PATH`. For a CPU run, add `--device cpu`. LRP uses the same command, for example `--variant lrp-r4-d128`. Keep the default batch size of 200 when comparing against paper NMSE; the paper protocol averages each batch's NMSE in dB. `--metric global` instead computes one NMSE over all test samples and can differ slightly.
+
+   Check all 32 DCRNetV2 mini/small/base/unified paper NMSE values with one command (the test data for each scenario is loaded once):
+
+   ```bash
+   python scripts/verify_paper_results.py --data ./data/COST2100
+   ```
+
+   This checks the paper's two-decimal NMSE values to within 0.0051 dB. It does not recompute FLOPs, which depend on the model architecture rather than the checkpoint weights.
+
+   Verification on the COST2100 test split (20,000 samples per scenario) matched **32/32** paper NMSE values; the largest absolute difference from the displayed two-decimal values was 0.0050 dB. This was run with Python 3.12, PyTorch 2.11, and a CUDA GPU.
+
+4. To reproduce a training run, start with the small variant and then use the full recipe in [Training](#training):
+
+   ```bash
+   python train.py --variant mini --scenario in --cr 4 --data ./data/COST2100 \
+     --epochs 1 --batch-size 2 --workers 0 --no-prefetch
+   ```
+
+   The one-epoch command checks the pipeline; it is not expected to match a pretrained model's result. Full training defaults to 1500 epochs. The current training entry selects the best checkpoint on validation NMSE and evaluates that checkpoint once on the held-out test split. The curated checkpoints come from earlier runs; see [weight provenance](weights/SOURCES.md).
+
 ## Repository layout
 
 ```text
@@ -20,33 +73,36 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 │   └── cost2100.py       # COST2100 loading + validation CLI
 ├── utils.py              # Scheduler, meters, NMSE/rho metrics
 ├── weights/              # Curated DCRNetV2/LRP checkpoints
+├── figures/              # Paper figures used in README
 ├── archive/              # Legacy code kept out of the public path
 ├── train.py              # Single DCRNetV2/LRP training entry
+├── evaluate.py           # Test-only evaluation of curated/local checkpoints
 ├── read_dataset.py       # Dataset validation/inspection entry
 ├── scripts/
 │   ├── read_cost2100.sh  # Dataset smoke test launcher
-│   └── train_cost2100.sh # Training launcher
+│   ├── train_cost2100.sh # Training launcher
+│   └── verify_paper_results.py # Check published NMSE values
 ├── requirements.txt
 └── AGENTS.md
 ```
 
-> Note: datasets, checkpoints, logs, and experiment outputs are intentionally not tracked.
+> Note: datasets, training outputs, and ad-hoc checkpoints are intentionally not tracked. Curated public checkpoints under `weights/` are tracked.
 
 ## Installation
 
 ```bash
 git clone git@github.com:tangshunpu/DCRNetV2.git
 cd DCRNetV2
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 PyTorch installation can vary by CUDA version. If needed, install the CUDA-specific wheel from the official PyTorch instructions first, then run `pip install -r requirements.txt`.
 
 ## Dataset
 
-Download the COST2100 CSI-feedback benchmark used by CsiNet/DCRNet and place the `.mat` files under `./data/COST2100` or pass a custom path with `--data`.
+Download the COST2100 CSI-feedback benchmark used by CsiNet/DCRNet (see the [original DCRNet dataset instructions](https://github.com/tangshunpu/DCRNet#dataset)) and place the `.mat` files under `./data/COST2100` or pass a custom path with `--data`.
 
 Expected files for each scenario (`in` indoor, `out` outdoor):
 
@@ -108,6 +164,8 @@ Common options:
 - `--finetune-from PATH --gate-reset -1.0` for fine-tuning hybrid variants
 
 Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.jsonl`. Use `train.py` for the public DCRNetV2/LRP release; legacy DCRNet code is kept under `archive/`.
+
+During training, `DATA_Hval*.mat` determines the best checkpoint using validation NMSE. The selected checkpoint is then evaluated on `DATA_Htest*.mat` and `DATA_HtestF*_all.mat` for test NMSE and rho. The JSONL log records the final test result in a row with `"phase": "test"`. To evaluate any checkpoint independently, run `evaluate.py --variant ... --scenario ... --cr ... --checkpoint PATH`; optional evaluation flags are `--batch-size` (default 200), `--workers` (default 0), `--device {auto,cpu,cuda}` (default auto), and `--metric {paper,global}` (default paper).
 
 ## Model variants
 
