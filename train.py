@@ -54,32 +54,6 @@ def build_model(variant: str, reduction: int) -> torch.nn.Module:
     return VARIANTS[variant](reduction=reduction)
 
 
-def convert_legacy_dcrnetv2_state(model: torch.nn.Module, state_dict: dict) -> dict:
-    """Adapt early DCRNetV2 checkpoints with fixed-slope encoder activations.
-
-    Early experiments used LeakyReLU(slope=0.3) in the DCR encoder, where the
-    public model uses PReLU. Setting those PReLU weights to 0.3 is equivalent
-    at inference. Old ``conv2.0`` names and thop counters are also normalized.
-    The caller must still use strict loading to catch other incompatibilities.
-    """
-
-    converted = {}
-    for key, value in state_dict.items():
-        if key.split(".")[-1] in {"total_ops", "total_params"}:
-            continue
-        new_key = key.replace("enc_dilate.block.conv2.0.", "enc_dilate.block.conv2.")
-        if new_key in converted:
-            raise ValueError(f"Duplicate checkpoint key after conversion: {new_key}")
-        converted[new_key] = value
-    expected = model.state_dict()
-    fixed_slope_keys = [f"enc_dilate.block.conv1.{i}.weight" for i in (1, 3, 5, 7, 9)]
-    fixed_slope_keys += ["enc_dilate.block.prelu1.weight", "enc_dilate.block.prelu2.weight"]
-    for key in fixed_slope_keys:
-        if key in expected and key not in converted:
-            converted[key] = torch.full_like(expected[key], 0.3)
-    return converted
-
-
 def reset_gate_bias(model: torch.nn.Module, value: float) -> None:
     """Reset hybrid decoder gate bias for fine-tuning recipes."""
 
@@ -179,7 +153,6 @@ def main(argv=None) -> None:
     parser.add_argument("--val-freq", type=int, default=5, help="Evaluate every N epochs")
     parser.add_argument("--resume", default=None, help="Resume full training state from checkpoint")
     parser.add_argument("--finetune-from", default=None, help="Load model weights from checkpoint")
-    parser.add_argument("--legacy-checkpoint", action="store_true", help="Convert early DCRNetV2 weights; requires --finetune-from")
     parser.add_argument("--gate-reset", type=float, default=None, help="Reset hybrid rank_gate.bias after loading weights")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-prefetch", action="store_true", help="Disable CUDA prefetcher")
@@ -193,8 +166,6 @@ def main(argv=None) -> None:
         parser.error("--scenario is only used with --dataset cost2100")
     if args.dataset == "rtcsi" and Path(args.data).suffix.lower() != ".npz":
         parser.error("--data must point to an RT-CSI .npz file")
-    if args.legacy_checkpoint and (not args.finetune_from or args.resume or args.variant.startswith("lrp-")):
-        parser.error("--legacy-checkpoint requires --finetune-from and a DCRNetV2 variant")
 
     if args.seed is not None:
         seed_everything(args.seed)
@@ -238,10 +209,7 @@ def main(argv=None) -> None:
     if load_path:
         checkpoint = torch.load(load_path, map_location=device)
         state_dict = checkpoint.get("state_dict", checkpoint)
-        if args.legacy_checkpoint:
-            model.load_state_dict(convert_legacy_dcrnetv2_state(model, state_dict), strict=True)
-        else:
-            model.load_state_dict(state_dict, strict=False)
+        model.load_state_dict(state_dict, strict=True)
         print(f"Loaded model weights from {load_path}")
         if args.resume:
             if "optimizer" in checkpoint:

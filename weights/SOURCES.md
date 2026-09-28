@@ -16,6 +16,14 @@ The public checkpoint filenames are normalized to DCRNetV2/LRP names. Some DCRNe
 
 During conversion, historical `enc_dilate.block.conv2.0.*` keys are normalized to release `enc_dilate.block.conv2.*` keys and `thop` bookkeeping keys are removed.
 
+## Sionna-RT-Mix5
+
+| Public files | Historical source tag | Training data |
+|---|---|---|
+| `weights/rtcsi-mix5/dcrnetv2-unified/cr{4,8,16}.pt` | `combined5_v9u_cr{4,8,16}` | Five-scene Mix5 training split |
+
+The three published RT-CSI files contain only the current model state and small provenance metadata. Early encoder activations were saved as PReLU parameters with slope 0.3, preserving the fixed-slope inference behavior of the source weights. The files strict-load with `models/dcrnetv2.py`.
+
 ## LRP
 
 | Public variant | Scenario(s) | Public files | Historical source directory |

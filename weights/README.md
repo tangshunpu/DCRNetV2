@@ -1,9 +1,6 @@
 # Pretrained weights
 
-Curated checkpoints for the public DCRNetV2/LRP release.
-
-These checkpoints were trained on COST2100. There are no RT-CSI-trained checkpoints in this directory; using one on RT-CSI data is a zero-shot transfer test and requires an explicit `--checkpoint` argument.
-Older local RT-CSI checkpoints may exist in ignored experiment outputs. Use `evaluate.py --legacy-checkpoint --checkpoint FILE` to convert a matching DCRNetV2 variant at load time; these files are not part of the public weight set.
+Curated checkpoints for COST2100 and Sionna-RT-Mix5. The RT-CSI checkpoints use the current DCRNetV2 model format and load strictly without conversion flags.
 
 ## Layout
 
@@ -18,7 +15,8 @@ weights/
 ├── lrp-r4-d128/{in,out}/cr{4,8,16,32}.pt
 ├── lrp-r4-d512/{in,out}/cr{4,8,16,32}.pt
 ├── lrp-r8-d512/{in,out}/cr{4,8,16,32}.pt
-└── lrp-r16-d512/{in,out}/cr{4,8,16,32}.pt
+├── lrp-r16-d512/{in,out}/cr{4,8,16,32}.pt
+└── rtcsi-mix5/dcrnetv2-unified/cr{4,8,16}.pt
 ```
 
 Each file is a PyTorch dictionary with at least:
@@ -26,10 +24,11 @@ Each file is a PyTorch dictionary with at least:
 - `state_dict`
 - `model_family`
 - `variant`
-- `scenario`
 - `cr`
 - `best_nmse`
 - `best_epoch`
+
+COST2100 checkpoints also record `scenario` (`in` or `out`); RT-CSI checkpoints record `dataset=rtcsi` and `training_data=Sionna-RT-Mix5`.
 
 ## Loading
 
@@ -40,6 +39,18 @@ from models.dcrnetv2 import dcrnetv2_large_out
 ckpt = torch.load("weights/dcrnetv2-large-out/out/cr4.pt", map_location="cpu")
 model = dcrnetv2_large_out(reduction=ckpt["cr"])
 model.load_state_dict(ckpt["state_dict"])
+model.eval()
+```
+
+For RT-CSI:
+
+```python
+import torch
+from models.dcrnetv2 import dcrnetv2_unified
+
+ckpt = torch.load("weights/rtcsi-mix5/dcrnetv2-unified/cr4.pt", map_location="cpu")
+model = dcrnetv2_unified(reduction=ckpt["cr"])
+model.load_state_dict(ckpt["state_dict"], strict=True)
 model.eval()
 ```
 
