@@ -80,14 +80,17 @@ Use `--variant` to select `mini`, `small`, `base`, `unified`, `large-out`, `larg
 
 ## Citation
 
-If this code is useful in your research, please cite the paper:
+If this code is useful in your research, please cite the [paper](https://arxiv.org/abs/2609.28156):
 
 ```bibtex
-@misc{tang2026rankone,
-  title={Model-Driven Deep Learning with Rank-One Sensing for Efficient CSI Feedback},
+@misc{tang2026lowrank,
+  title={Low-Rank Prior-Guided Rank-One Sensing for Efficient CSI Feedback},
   author={Tang, Shunpu and Yang, Qianqian and Ko, Seung-Woo and Park, Jihong},
   year={2026},
-  howpublished={\url{https://github.com/tangshunpu/DCRNetV2}}
+  eprint={2609.28156},
+  archivePrefix={arXiv},
+  primaryClass={eess.SP},
+  url={https://arxiv.org/abs/2609.28156}
 }
 ```
 
