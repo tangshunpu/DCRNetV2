@@ -10,21 +10,7 @@ PyTorch code and pretrained weights for the LRP and DCRNetV2 CSI feedback models
 
 *Accuracy and computation on COST2100 at compression ratios 1/4 and 1/16.*
 
-## Results and checkpoints
-
-Curated COST2100 checkpoints cover `mini`, `small`, `base`, and `unified` at compression ratios 1/4, 1/8, 1/16, and 1/32, in both indoor and outdoor scenarios. The [verification script](scripts/verify_paper_results.py) reproduces all 32 DCRNetV2 NMSE values in the paper's COST2100 table to two decimal places. Additional LRP and scenario-specific DCRNetV2 checkpoints are listed in [weights/README.md](weights/README.md).
-
-The table below reports the paper's scene-wise RT-CSI NMSE (dB) for Mix5-trained `unified` models. With the bundled checkpoints and RT-CSI release data, the largest measured difference is 0.1212 dB across these 15 values.
-
-| RT-CSI test scene | 1/4 | 1/8 | 1/16 |
-|---|---:|---:|---:|
-| Paris Étoile | -20.63 | -16.89 | -14.10 |
-| Florence | -24.40 | -19.50 | -15.86 |
-| Munich | -20.16 | -15.90 | -12.67 |
-| ZJU | -17.82 | -14.62 | -12.24 |
-| SUTD | -17.53 | -14.61 | -12.28 |
-
-The RT-CSI weights are in `weights/rtcsi-mix5/dcrnetv2-unified/cr{4,8,16}.pt`. The [RT-CSI verification script](scripts/verify_rtcsi_results.py) evaluates each scene's test split against the paper table, with a default tolerance of 0.13 dB.
+Pretrained checkpoints are provided for COST2100 and Sionna-RT-Mix5. See [weights/README.md](weights/README.md) for the available models and loading examples.
 
 ## Setup
 
@@ -48,7 +34,6 @@ Download the [COST2100 CSI feedback data](https://github.com/tangshunpu/DCRNet#d
 export COST2100_DATA=/path/to/COST2100
 python read_dataset.py --data "$COST2100_DATA" --scenario in
 python evaluate.py --data "$COST2100_DATA" --scenario in --variant mini --cr 4
-python scripts/verify_paper_results.py --data "$COST2100_DATA"
 ```
 
 `evaluate.py` selects `weights/dcrnetv2-mini/in/cr4.pt` in this example. Use `--checkpoint FILE` to evaluate another checkpoint. The default `--metric paper --batch-size 200` follows the paper's batch-averaged NMSE protocol; `--metric global` computes aggregate NMSE over all samples.
@@ -63,7 +48,6 @@ python read_dataset.py --dataset rtcsi --data "$RTCSI_DATA/csi_combined5_3GHz_32
 python evaluate.py --dataset rtcsi \
   --data "$RTCSI_DATA/csi_etoile_3GHz_32x1024.npz" \
   --variant unified --cr 4
-python scripts/verify_rtcsi_results.py --data "$RTCSI_DATA"
 ```
 
 The evaluation command selects the Mix5-trained `weights/rtcsi-mix5/dcrnetv2-unified/cr4.pt`. Run it with the Florence, Munich, ZJU, or SUTD archive to evaluate another scene. RT-CSI evaluation reports NMSE; the archives do not contain the `HF_all` data required for rho.
@@ -93,24 +77,6 @@ python train.py --dataset rtcsi \
 ```
 
 Use `--variant` to select `mini`, `small`, `base`, `unified`, `large-out`, `large-in4`, or an LRP configuration (`lrp-r4-d128`, `lrp-r4-d512`, `lrp-r8-d512`, `lrp-r16-d512`). `--cr` accepts 4, 8, 16, or 32. Common options are `--epochs`, `--batch-size`, `--lr`, `--workers`, `--gpu`, and `--outputs`; use `--resume FILE` to resume training or `--finetune-from FILE` to initialize a new run from weights. `--gate-reset VALUE` resets the hybrid decoder gate after loading weights. `--test-data FILE` supplies a separate RT-CSI test split.
-
-For a quick pipeline check, add `--epochs 1 --batch-size 2 --workers 0 --no-prefetch`. This checks training and data loading but does not reproduce the pretrained results.
-
-## Repository structure
-
-```text
-models/             DCRNetV2 and LRP architectures
-dataset/            COST2100 and RT-CSI readers
-train.py            Training and fine-tuning
-evaluate.py         Checkpoint evaluation
-read_dataset.py     Dataset inspection
-scripts/            Paper-result verification and launchers
-weights/            Curated checkpoints and provenance
-figures/            Paper figures
-archive/            Earlier experiments
-```
-
-The [weight guide](weights/README.md) describes checkpoint loading and [SOURCES.md](weights/SOURCES.md) records provenance. Datasets and training outputs are excluded from the repository.
 
 ## Citation
 
