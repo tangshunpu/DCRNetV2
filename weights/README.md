@@ -2,6 +2,9 @@
 
 Curated checkpoints for the public DCRNetV2/LRP release.
 
+These checkpoints were trained on COST2100. There are no RT-CSI-trained checkpoints in this directory; using one on RT-CSI data is a zero-shot transfer test and requires an explicit `--checkpoint` argument.
+Older local RT-CSI checkpoints may exist in ignored experiment outputs. Use `evaluate.py --legacy-checkpoint --checkpoint FILE` to convert a matching DCRNetV2 variant at load time; these files are not part of the public weight set.
+
 ## Layout
 
 ```text

@@ -1,6 +1,6 @@
 # DCRNetV2
 
-DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive MIMO-OFDM systems. This repository publishes a self-contained PyTorch release with model definitions, COST2100 dataset reading utilities, and training scripts.
+DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive MIMO-OFDM systems. This repository publishes a self-contained PyTorch release with model definitions, COST2100 and RT-CSI dataset readers, and training scripts.
 
 ## Highlights
 
@@ -8,6 +8,7 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 - **Hybrid low-rank decoder**: combines a direct low-rank decoder with a gated factored residual bank for better high-compression reconstruction.
 - **Ready-to-run variants**: DCRNetV2 (`mini`, `small`, `base`, `unified`, `large-out`, `large-in4`) and LRP (`lrp-r4-d128`, `lrp-r4-d512`, `lrp-r8-d512`, `lrp-r16-d512`).
 - **COST2100 ready**: includes `.mat` readers, NMSE/rho evaluation, checkpointing, JSONL logs, and shell launchers.
+- **RT-CSI ready**: reads normalized `.npz` splits for Mix5 scenes and separate Shenzhen adaptation/test archives; reports NMSE (full-bandwidth rho is unavailable).
 
 ## Figures
 
@@ -70,7 +71,8 @@ DCRNetV2 is a lightweight CSI feedback compression model family for FDD massive 
 │   ├── dcrnetv2.py       # DCRNetV2 model definitions and variant factories
 │   └── lrp.py            # LRP low-rank-prior variants
 ├── dataset/
-│   └── cost2100.py       # COST2100 loading + validation CLI
+│   ├── cost2100.py       # COST2100 .mat reader
+│   └── rtcsi.py          # RT-CSI .npz reader
 ├── utils.py              # Scheduler, meters, NMSE/rho metrics
 ├── weights/              # Curated DCRNetV2/LRP checkpoints
 ├── figures/              # Paper figures used in README
@@ -128,6 +130,38 @@ DATA=./data/COST2100 SCENARIO=out bash scripts/read_cost2100.sh
 
 The loader expects sparse angular-delay CSI tensors shaped `(N, 2, 32, 32)` under key `HT`, and full-bandwidth complex CSI under key `HF_all` for the rho metric.
 
+### RT-CSI NPZ data
+
+Download the [RT-CSI release](https://github.com/tangshunpu/RT-CSI) and pass an `.npz` file directly with `--dataset rtcsi --data FILE`. The reader uses normalized `x_train`, `x_val`, and `x_test` arrays shaped `(N, 2, 32, 32)` in `[0, 1]`. Point `RTCSI_DATA` to the release's `data/` directory; the project does not embed a local dataset path.
+
+```bash
+export RTCSI_DATA=/path/to/RT-CSI-release/data
+python read_dataset.py --dataset rtcsi --data "$RTCSI_DATA/csi_combined5_3GHz_32x1024.npz"
+python train.py --dataset rtcsi --data "$RTCSI_DATA/csi_combined5_3GHz_32x1024.npz" \
+  --variant unified --cr 4 --lr 1e-3
+```
+
+For Shenzhen adaptation, the few-shot training NPZ has no test rows. Supply the fixed test archive separately:
+
+```bash
+python read_dataset.py --dataset rtcsi \
+  --data "$RTCSI_DATA/csi_SHENZHEN_train200_3GHz_32x1024.npz" \
+  --test-data "$RTCSI_DATA/csi_SHENZHEN_test_3GHz_32x1024.npz"
+```
+
+No RT-CSI-trained weights are included in `weights/`. To measure **zero-shot transfer** from an existing COST2100 checkpoint, name it explicitly:
+
+```bash
+python evaluate.py --dataset rtcsi \
+  --data "$RTCSI_DATA/csi_ZJU_3GHz_32x1024.npz" \
+  --variant unified --cr 4 \
+  --checkpoint weights/dcrnetv2-unified/out/cr4.pt
+```
+
+This prints NMSE only; RT-CSI NPZ files do not provide the `HF_all` tensor used for COST2100 rho. A checkpoint produced by `train.py --dataset rtcsi` can be evaluated with the same command by replacing `--checkpoint`.
+
+Some older local RT-CSI experiment checkpoints use an earlier DCR encoder with fixed LeakyReLU slope 0.3 and old parameter names. They are **not bundled** with this release. If you have one, use `--checkpoint FILE --legacy-checkpoint` with the matching DCRNetV2 `--variant` and `--cr`; conversion is explicit and the resulting weights are strictly checked. For fine-tuning one of these files, use `train.py --finetune-from FILE --legacy-checkpoint` (not `--resume`).
+
 ## Training
 
 Train DCRNetV2-base on COST2100 outdoor with compression ratio 4:
@@ -165,7 +199,7 @@ Common options:
 
 Checkpoints are written to `outputs/checkpoints/` and logs to `outputs/logs/*.jsonl`. Use `train.py` for the public DCRNetV2/LRP release; legacy DCRNet code is kept under `archive/`.
 
-During training, `DATA_Hval*.mat` determines the best checkpoint using validation NMSE. The selected checkpoint is then evaluated on `DATA_Htest*.mat` and `DATA_HtestF*_all.mat` for test NMSE and rho. The JSONL log records the final test result in a row with `"phase": "test"`. To evaluate any checkpoint independently, run `evaluate.py --variant ... --scenario ... --cr ... --checkpoint PATH`; optional evaluation flags are `--batch-size` (default 200), `--workers` (default 0), `--device {auto,cpu,cuda}` (default auto), and `--metric {paper,global}` (default paper).
+During training, the validation split determines the best checkpoint using validation NMSE. The selected checkpoint is then evaluated on the test split; COST2100 also reports rho. The JSONL log records the final test result in a row with `"phase": "test"`. To evaluate any checkpoint independently, run `evaluate.py --variant ... --cr ... --checkpoint PATH` with `--dataset` and the corresponding data options; optional evaluation flags are `--batch-size` (default 200), `--workers` (default 0), `--device {auto,cpu,cuda}` (default auto), and `--metric {paper,global}` (default paper).
 
 ## Model variants
 

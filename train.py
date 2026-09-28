@@ -1,4 +1,4 @@
-"""Train DCRNetV2 or LRP on COST2100.
+"""Train DCRNetV2 or LRP on COST2100 or normalized RT-CSI NPZ data.
 
 Examples:
     python train.py --variant base --scenario out --cr 4 --data ./data/COST2100
@@ -20,6 +20,7 @@ import torch
 import torch.nn as nn
 
 from dataset.cost2100 import Cost2100DataLoader
+from dataset.rtcsi import RTCSIDataLoader
 from models.dcrnetv2 import (
     dcrnetv2_base,
     dcrnetv2_large_in4,
@@ -51,6 +52,32 @@ def build_model(variant: str, reduction: int) -> torch.nn.Module:
     if variant not in VARIANTS:
         raise ValueError(f"Unknown variant {variant!r}; choose from {sorted(VARIANTS)}")
     return VARIANTS[variant](reduction=reduction)
+
+
+def convert_legacy_dcrnetv2_state(model: torch.nn.Module, state_dict: dict) -> dict:
+    """Adapt early DCRNetV2 checkpoints with fixed-slope encoder activations.
+
+    Early experiments used LeakyReLU(slope=0.3) in the DCR encoder, where the
+    public model uses PReLU. Setting those PReLU weights to 0.3 is equivalent
+    at inference. Old ``conv2.0`` names and thop counters are also normalized.
+    The caller must still use strict loading to catch other incompatibilities.
+    """
+
+    converted = {}
+    for key, value in state_dict.items():
+        if key.split(".")[-1] in {"total_ops", "total_params"}:
+            continue
+        new_key = key.replace("enc_dilate.block.conv2.0.", "enc_dilate.block.conv2.")
+        if new_key in converted:
+            raise ValueError(f"Duplicate checkpoint key after conversion: {new_key}")
+        converted[new_key] = value
+    expected = model.state_dict()
+    fixed_slope_keys = [f"enc_dilate.block.conv1.{i}.weight" for i in (1, 3, 5, 7, 9)]
+    fixed_slope_keys += ["enc_dilate.block.prelu1.weight", "enc_dilate.block.prelu2.weight"]
+    for key in fixed_slope_keys:
+        if key in expected and key not in converted:
+            converted[key] = torch.full_like(expected[key], 0.3)
+    return converted
 
 
 def reset_gate_bias(model: torch.nn.Module, value: float) -> None:
@@ -122,6 +149,10 @@ def save_checkpoint(path: Path, model, optimizer, scheduler, epoch: int, metrics
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
             "epoch": epoch,
+            "dataset": args.dataset,
+            "variant": args.variant if args.variant.startswith("lrp-") else f"dcrnetv2-{args.variant}",
+            "cr": args.cr,
+            "scenario": args.scenario,
             **metrics,
             "args": vars(args),
         },
@@ -130,11 +161,13 @@ def save_checkpoint(path: Path, model, optimizer, scheduler, epoch: int, metrics
 
 
 def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description="Train DCRNetV2/LRP on COST2100")
+    parser = argparse.ArgumentParser(description="Train DCRNetV2/LRP on COST2100 or RT-CSI")
+    parser.add_argument("--dataset", choices=["cost2100", "rtcsi"], default="cost2100")
     parser.add_argument("--variant", required=True, choices=sorted(VARIANTS), help="Model variant; LRP variants use lrp-r{r}-d{d}")
-    parser.add_argument("--scenario", required=True, choices=["in", "out"], help="COST2100 indoor/outdoor scenario")
+    parser.add_argument("--scenario", choices=["in", "out"], help="COST2100 indoor/outdoor scenario")
     parser.add_argument("--cr", type=int, required=True, choices=[4, 8, 16, 32], help="Compression ratio")
-    parser.add_argument("--data", default="./data/COST2100", help="COST2100 dataset root")
+    parser.add_argument("--data", default="./data/COST2100", help="COST2100 directory or RT-CSI train/val NPZ")
+    parser.add_argument("--test-data", help="RT-CSI test NPZ if separate from train/val NPZ")
     parser.add_argument("--outputs", default="./outputs", help="Output dir for checkpoints/logs")
     parser.add_argument("--epochs", type=int, default=1500)
     parser.add_argument("--lr", type=float, default=2e-3)
@@ -146,10 +179,22 @@ def main(argv=None) -> None:
     parser.add_argument("--val-freq", type=int, default=5, help="Evaluate every N epochs")
     parser.add_argument("--resume", default=None, help="Resume full training state from checkpoint")
     parser.add_argument("--finetune-from", default=None, help="Load model weights from checkpoint")
+    parser.add_argument("--legacy-checkpoint", action="store_true", help="Convert early DCRNetV2 weights; requires --finetune-from")
     parser.add_argument("--gate-reset", type=float, default=None, help="Reset hybrid rank_gate.bias after loading weights")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-prefetch", action="store_true", help="Disable CUDA prefetcher")
     args = parser.parse_args(argv)
+
+    if args.dataset == "cost2100" and args.scenario is None:
+        parser.error("--scenario is required for COST2100")
+    if args.dataset == "cost2100" and args.test_data:
+        parser.error("--test-data is only used with --dataset rtcsi")
+    if args.dataset == "rtcsi" and args.scenario:
+        parser.error("--scenario is only used with --dataset cost2100")
+    if args.dataset == "rtcsi" and Path(args.data).suffix.lower() != ".npz":
+        parser.error("--data must point to an RT-CSI .npz file")
+    if args.legacy_checkpoint and (not args.finetune_from or args.resume or args.variant.startswith("lrp-")):
+        parser.error("--legacy-checkpoint requires --finetune-from and a DCRNetV2 variant")
 
     if args.seed is not None:
         seed_everything(args.seed)
@@ -172,13 +217,11 @@ def main(argv=None) -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.MSELoss()
 
-    train_loader, val_loader, test_loader = Cost2100DataLoader(
-        args.data,
-        batch_size=args.batch_size,
-        num_workers=args.workers,
-        pin_memory=pin_memory,
-        scenario=args.scenario,
-        prefetch=not args.no_prefetch,
+    loader_class = Cost2100DataLoader if args.dataset == "cost2100" else RTCSIDataLoader
+    data_kwargs = {"scenario": args.scenario} if args.dataset == "cost2100" else {"test_path": args.test_data}
+    train_loader, val_loader, test_loader = loader_class(
+        args.data, batch_size=args.batch_size, num_workers=args.workers,
+        pin_memory=pin_memory, prefetch=not args.no_prefetch, **data_kwargs,
     )()
     scheduler = WarmUpCosineAnnealingLR(
         optimizer,
@@ -195,7 +238,10 @@ def main(argv=None) -> None:
     if load_path:
         checkpoint = torch.load(load_path, map_location=device)
         state_dict = checkpoint.get("state_dict", checkpoint)
-        model.load_state_dict(state_dict, strict=False)
+        if args.legacy_checkpoint:
+            model.load_state_dict(convert_legacy_dcrnetv2_state(model, state_dict), strict=True)
+        else:
+            model.load_state_dict(state_dict, strict=False)
         print(f"Loaded model weights from {load_path}")
         if args.resume:
             if "optimizer" in checkpoint:
@@ -212,7 +258,8 @@ def main(argv=None) -> None:
 
     n_params = sum(p.numel() for p in model.parameters())
     model_label = args.variant.replace("lrp", "LRP", 1) if args.variant.startswith("lrp-") else f"DCRNetV2-{args.variant}"
-    run_name = f"{model_label}-{args.scenario}-cr{args.cr}"
+    data_label = args.scenario if args.dataset == "cost2100" else f"rtcsi-{Path(args.data).stem}"
+    run_name = f"{model_label}-{data_label}-cr{args.cr}"
     ckpt_best = ckpt_dir / f"{run_name}-best.pt"
     ckpt_last = ckpt_dir / f"{run_name}-last.pt"
     log_path = log_dir / f"{run_name}.jsonl"
@@ -278,7 +325,10 @@ def main(argv=None) -> None:
     with log_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"phase": "test", "checkpoint": str(ckpt_best), "nmse": test_nmse, "rho": test_rho}) + "\n")
     print(f"\n=> Best validation NMSE: {best_val_nmse:.4f} dB @ epoch {best_epoch+1}")
-    print(f"=> Held-out test: NMSE={test_nmse:.4f} dB  rho={test_rho:.4f}")
+    test_metrics = f"NMSE={test_nmse:.4f} dB"
+    if test_rho is not None:
+        test_metrics += f"  rho={test_rho:.4f}"
+    print(f"=> Held-out test: {test_metrics}")
     print(f"=> Best checkpoint: {ckpt_best}")
 
 
